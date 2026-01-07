@@ -5,10 +5,11 @@ import time
 import os
 from typing import Tuple, Dict, Any, Optional, List
 
-from database.auth_db import get_auth_token_broker
+from database.auth_db import get_auth_token_broker, get_username_by_apikey
 from database.apilog_db import async_log_order, executor as log_executor
 from database.settings_db import get_analyze_mode
 from database.analyzer_db import async_log_analyzer
+from database.position_strategy_mapping_db import create_position_mapping
 from extensions import socketio
 from utils.api_analyzer import analyze_request, generate_order_id
 from utils.constants import (
@@ -98,7 +99,9 @@ def place_single_order(
     broker_module: Any,
     auth_token: str,
     order_num: int,
-    total_orders: int
+    total_orders: int,
+    api_key: Optional[str] = None,
+    tag: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Place a single order (no per-order event emission - summary event emitted at end)
@@ -109,6 +112,8 @@ def place_single_order(
         auth_token: Authentication token
         order_num: Order number in the sequence
         total_orders: Total number of orders
+        api_key: API key for tracking positions
+        tag: Strategy tag for position tracking
 
     Returns:
         Order result dictionary
@@ -118,6 +123,27 @@ def place_single_order(
         res, response_data, order_id = broker_module.place_order_api(order_data, auth_token)
 
         if res.status == 200:
+            # Track position if tag/strategy is provided in the order request
+            strategy_tag = order_data.get('tag') or tag
+            if strategy_tag and api_key:
+                # Get user_id from apikey
+                user_id = get_username_by_apikey(api_key)
+                
+                if user_id:
+                    # Track position in background to not block response
+                    socketio.start_background_task(
+                        create_position_mapping,
+                        user_id=user_id,
+                        symbol=order_data.get('symbol'),
+                        exchange=order_data.get('exchange'),
+                        strategy_name=strategy_tag,
+                        strategy_id=None,
+                        strategy_type='python',
+                        entry_price=str(order_data.get('price', 0)),
+                        entry_quantity=order_data.get('quantity'),
+                        entry_time=None
+                    )
+            
             # No per-order event emission - a summary event is emitted at the end of all orders
             return {
                 'order_num': order_num,
@@ -312,6 +338,7 @@ def split_order_with_auth(
     # Process orders sequentially with rate limiting
     results = []
     order_delay = get_order_rate_limit()
+    api_key = original_data.get('apikey')
 
     # Place full-size orders
     for i in range(num_full_orders):
@@ -324,7 +351,9 @@ def split_order_with_auth(
             broker_module,
             auth_token,
             i + 1,
-            total_orders
+            total_orders,
+            api_key=api_key,
+            tag=api_key and original_data.get('tag')
         )
         results.append(result)
 
@@ -339,7 +368,9 @@ def split_order_with_auth(
             broker_module,
             auth_token,
             total_orders,
-            total_orders
+            total_orders,
+            api_key=api_key,
+            tag=api_key and original_data.get('tag')
         )
         results.append(result)
 

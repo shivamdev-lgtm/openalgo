@@ -4,10 +4,11 @@ import copy
 import time
 import os
 from typing import Tuple, Dict, Any, Optional, List, Union
-from database.auth_db import get_auth_token_broker
+from database.auth_db import get_auth_token_broker, get_username_by_apikey
 from database.apilog_db import async_log_order, executor as log_executor
 from database.settings_db import get_analyze_mode
 from database.analyzer_db import async_log_analyzer
+from database.position_strategy_mapping_db import create_position_mapping
 from extensions import socketio
 from utils.api_analyzer import analyze_request, generate_order_id
 from utils.constants import (
@@ -132,7 +133,9 @@ def place_single_order(
     broker_module: Any,
     auth_token: str,
     total_orders: int,
-    order_index: int
+    order_index: int,
+    api_key: Optional[str] = None,
+    tag: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Place a single order (no per-order event emission - summary event emitted at end)
@@ -143,6 +146,8 @@ def place_single_order(
         auth_token: Authentication token
         total_orders: Total number of orders in the basket
         order_index: Index of the current order
+        api_key: API key for tracking positions
+        tag: Strategy tag for position tracking
 
     Returns:
         Order result dictionary
@@ -152,6 +157,31 @@ def place_single_order(
         res, response_data, order_id = broker_module.place_order_api(order_data, auth_token)
 
         if res.status == 200:
+            try:
+                # Track position if tag/strategy is provided in the order request
+                strategy_tag = order_data.get('tag') or tag
+                if strategy_tag and api_key:
+                    # Get user_id from apikey
+                    user_id = get_username_by_apikey(api_key)
+                    
+                    if user_id:
+                        # Track position in background to not block response
+                        socketio.start_background_task(
+                            create_position_mapping,
+                            user_id=user_id,
+                            symbol=order_data.get('symbol'),
+                            exchange=order_data.get('exchange'),
+                            strategy_name=strategy_tag,
+                            strategy_id=None,
+                            strategy_type='python',
+                            entry_price=str(order_data.get('price', 0)),
+                            entry_quantity=order_data.get('quantity'),
+                            entry_time=None
+                        )
+            except Exception as e:
+                logger.error(f"Error tracking position for order {order_id}: {e}")
+                pass # Continue even if tag insertion fails
+
             # No per-order event emission - a summary event is emitted at the end of all orders
             return {
                 'symbol': order_data['symbol'],
@@ -312,7 +342,9 @@ def process_basket_order_with_auth(
             broker_module,
             auth_token,
             total_orders,
-            i
+            i,
+            api_key=api_key,
+            tag=original_data.get('tag')
         )
         if result:
             results.append(result)
@@ -329,7 +361,9 @@ def process_basket_order_with_auth(
             broker_module,
             auth_token,
             total_orders,
-            i
+            i,
+            api_key=api_key,
+            tag=original_data.get('tag')
         )
         if result:
             results.append(result)
