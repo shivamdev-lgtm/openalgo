@@ -2,6 +2,7 @@ from flask import Blueprint, jsonify, request, render_template, session, redirec
 from importlib import import_module
 from database.auth_db import get_auth_token, get_api_key_for_tradingview
 from database.settings_db import get_analyze_mode
+from database.position_strategy_mapping_db import get_position_mappings_as_dict
 from utils.session import check_session_validity
 from services.place_smart_order_service import place_smart_order
 from services.close_position_service import close_position
@@ -239,6 +240,21 @@ def positions():
         return redirect(url_for('auth.logout'))
 
     positions_data = response.get('data', [])
+    
+    # Enrich positions with strategy information
+    position_mappings = get_position_mappings_as_dict(login_username)
+    for position in positions_data:
+        position_key = f"{position.get('symbol')}_{position.get('exchange')}"
+        if position_key in position_mappings:
+            mapping = position_mappings[position_key]
+            position['strategy_name'] = mapping.get('strategy_name', 'Manual')
+            position['strategy_id'] = mapping.get('strategy_id')
+            position['strategy_type'] = mapping.get('strategy_type', 'manual')
+        else:
+            # Default to 'Manual' for positions without strategy mapping
+            position['strategy_name'] = 'Manual'
+            position['strategy_id'] = None
+            position['strategy_type'] = 'manual'
 
     return render_template('positions.html', positions_data=positions_data)
 

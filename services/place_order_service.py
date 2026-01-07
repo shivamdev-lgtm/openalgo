@@ -2,10 +2,11 @@ import importlib
 import traceback
 import copy
 from typing import Tuple, Dict, Any, Optional
-from database.auth_db import get_auth_token_broker
+from database.auth_db import get_auth_token_broker, get_username_by_apikey
 from database.apilog_db import async_log_order, executor
 from database.settings_db import get_analyze_mode
 from database.analyzer_db import async_log_analyzer
+from database.position_strategy_mapping_db import create_position_mapping
 from extensions import socketio
 from utils.api_analyzer import analyze_request, generate_order_id
 from utils.constants import (
@@ -210,6 +211,31 @@ def place_order_with_auth(
             )
         order_response_data = {'status': 'success', 'orderid': order_id}
         executor.submit(async_log_order, 'placeorder', order_request_data, order_response_data)
+        
+        # Track position if tag/strategy is provided in the order request
+        tag = order_data.get('tag') or original_data.get('tag')
+        if tag:
+            # Get user_id from apikey
+            api_key = original_data.get('apikey')
+            user_id = None
+            if api_key:
+                user_id = get_username_by_apikey(api_key)
+            
+            if user_id:
+                # Track position in background to not block response
+                socketio.start_background_task(
+                    create_position_mapping,
+                    user_id=user_id,
+                    symbol=order_data.get('symbol'),
+                    exchange=order_data.get('exchange'),
+                    strategy_name=tag,
+                    strategy_id=None,
+                    strategy_type='python',
+                    entry_price=str(order_data.get('price', 0)),
+                    entry_quantity=order_data.get('quantity'),
+                    entry_time=None
+                )
+        
         # Send Telegram alert in background task (non-blocking)
         # Moves DB lookups + formatting off request thread entirely
         socketio.start_background_task(

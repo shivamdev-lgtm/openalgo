@@ -49,6 +49,9 @@ MIGRATIONS = [
 
     # Performance migrations
     ('migrate_indexes.py', 'Database Performance Indexes'),
+
+    # Strategy position tracking
+    ('migrate_position_strategy_mapping.py', 'Position Strategy Mapping'),
 ]
 
 def run_migration(script_name, description):

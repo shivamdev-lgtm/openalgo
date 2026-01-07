@@ -16,10 +16,11 @@ from typing import Tuple, Dict, Any, Optional, List
 from utils.logging import get_logger
 from services.option_symbol_service import get_option_symbol
 from services.place_order_service import place_order
-from database.auth_db import get_auth_token_broker
+from database.auth_db import get_username_by_apikey
 from database.settings_db import get_analyze_mode
 from database.apilog_db import async_log_order, executor as log_executor
 from database.analyzer_db import async_log_analyzer
+from database.position_strategy_mapping_db import create_position_mapping
 from extensions import socketio
 from services.telegram_alert_service import telegram_alert_service
 
@@ -391,6 +392,30 @@ def place_options_order(
             # Add mode if present (analyze or live)
             if 'mode' in order_response:
                 enhanced_response['mode'] = order_response['mode']
+
+            # Track position if tag/strategy is provided in the order request
+            tag = options_data.get('tag') or options_data.get('strategy')
+            if tag and status_code == 200:
+                # Get user_id from apikey
+                api_key = options_data.get('apikey')
+                user_id = None
+                if api_key:
+                    user_id = get_username_by_apikey(api_key)
+                
+                if user_id:
+                    # Track position in background to not block response
+                    socketio.start_background_task(
+                        create_position_mapping,
+                        user_id=user_id,
+                        symbol=resolved_symbol,
+                        exchange=resolved_exchange,
+                        strategy_name=tag,
+                        strategy_id=None,
+                        strategy_type='python',
+                        entry_price=str(options_data.get('price', 0)),
+                        entry_quantity=options_data.get('quantity'),
+                        entry_time=None
+                    )
 
             logger.info(f"Options order placed successfully: {enhanced_response.get('orderid')}")
             return True, enhanced_response, status_code

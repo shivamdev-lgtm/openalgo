@@ -171,6 +171,27 @@
         @apply text-base-content font-semibold;
     }
 
+    /* Strategy tags */
+    .strategy-tag {
+        @apply inline-block px-2 py-1 text-xs font-semibold rounded-full;
+    }
+
+    .strategy-tag.manual {
+        @apply bg-base-300 text-base-content;
+    }
+
+    .strategy-tag.tradingview {
+        @apply bg-cyan-500/20 text-cyan-600 dark:text-cyan-400;
+    }
+
+    .strategy-tag.chartink {
+        @apply bg-blue-500/20 text-blue-600 dark:text-blue-400;
+    }
+
+    .strategy-tag.python {
+        @apply bg-yellow-500/20 text-yellow-600 dark:text-yellow-400;
+    }
+
     /* Footer */
     .footer-row {
         @apply bg-base-200;
@@ -268,12 +289,13 @@
                         </svg>
                     </th>
                     <th>Exchange</th>
+                    <th>Strategy</th>
                     <th>Product Type</th>
-                    <th class="cursor-pointer hover:bg-base-300" onclick="sortTable(3)">Net Qty</th>
-                    <th class="cursor-pointer hover:bg-base-300" onclick="sortTable(4)">Avg Price</th>
+                    <th class="cursor-pointer hover:bg-base-300" onclick="sortTable(4)">Net Qty</th>
+                    <th class="cursor-pointer hover:bg-base-300" onclick="sortTable(5)">Avg Price</th>
                     <th>LTP</th>
-                    <th class="cursor-pointer hover:bg-base-300" onclick="sortTable(6)">P&L</th>
-                    <th class="cursor-pointer hover:bg-base-300" onclick="sortTable(7)">Chg%</th>
+                    <th class="cursor-pointer hover:bg-base-300" onclick="sortTable(7)">P&L</th>
+                    <th class="cursor-pointer hover:bg-base-300" onclick="sortTable(8)">Chg%</th>
                     <th>Actions</th>
                 </tr>
             </thead>
@@ -302,13 +324,14 @@
 const originalPositions = {{ positions_data | tojson | safe }};
 
 let currentGrouping = 'none';
-let activeFilters = { product: [], direction: [], exchange: [] };
+let activeFilters = { product: [], direction: [], exchange: [], strategy: [] };
 let collapsedGroups = new Set();
 let sortColumn = null;
 let sortDirection = 'asc';
 
 document.addEventListener('DOMContentLoaded', function() {
     loadPreferences();
+    generateStrategyFilters();
     updateGroupingLabels();
     renderPositions();
     updateStats();
@@ -337,9 +360,46 @@ function parseSymbol(symbol, exchange) {
     return { underlying: symbol, expiry: null, strike: null, optionType: null };
 }
 
+function generateStrategyFilters() {
+    // Get all unique strategies from positions
+    const strategies = new Set();
+    originalPositions.forEach(pos => {
+        if (pos.strategy_name) {
+            strategies.add(pos.strategy_name);
+        }
+    });
+
+    const strategyFilterContainer = document.getElementById('strategy-filters');
+    if (strategyFilterContainer) {
+        strategyFilterContainer.innerHTML = '';
+        const sortedStrategies = Array.from(strategies).sort();
+        
+        sortedStrategies.forEach(strategy => {
+            const button = document.createElement('button');
+            button.className = 'btn btn-sm btn-outline rounded-full filter-chip';
+            button.setAttribute('data-filter', 'strategy');
+            button.setAttribute('data-value', strategy);
+            button.textContent = strategy;
+            button.onclick = function() { toggleFilter(this); };
+            
+            // Check if already active from preferences
+            if (activeFilters.strategy.includes(strategy)) {
+                button.classList.add('active');
+            }
+            
+            strategyFilterContainer.appendChild(button);
+        });
+    }
+}
+
 function getGroupKey(pos) {
     const exchange = pos.exchange;
     const product = pos.product;
+
+    // For strategy grouping
+    if (currentGrouping === 'strategy') {
+        return pos.strategy_name || 'Manual';
+    }
 
     // For NSE/BSE equity positions
     if (exchange === 'NSE' || exchange === 'BSE') {
@@ -384,6 +444,8 @@ function filterPositions(positions) {
         }
 
         if (activeFilters.exchange.length > 0 && !activeFilters.exchange.includes(pos.exchange)) return false;
+        
+        if (activeFilters.strategy.length > 0 && !activeFilters.strategy.includes(pos.strategy_name)) return false;
 
         return true;
     });
@@ -521,12 +583,20 @@ function renderPositions() {
             const pnlSign = pnl >= 0 ? '+' : '';
             const pctSign = pnlPercent >= 0 ? '+' : '';
 
+            // Strategy tag styling
+            const strategyType = position.strategy_type || 'manual';
+            const strategyName = position.strategy_name || 'Manual';
+            const strategyTag = `<span class="strategy-tag ${strategyType}">${strategyName}</span>`;
+
             const row = document.createElement('tr');
             row.className = `hover:bg-base-200 position-row ${isCollapsed ? 'collapsed' : ''}`;
             row.innerHTML = `
                 <td class="font-medium">${position.symbol}</td>
                 <td>
                     <div class="badge ${exchangeColors[position.exchange] || 'badge-ghost'}">${position.exchange}</div>
+                </td>
+                <td>
+                    ${strategyTag}
                 </td>
                 <td>
                     <div class="badge ${productColors[position.product] || 'badge-ghost'}">${position.product}</div>
@@ -625,7 +695,7 @@ function toggleFilter(btn) {
 }
 
 function clearFilters() {
-    activeFilters = { product: [], direction: [], exchange: [] };
+    activeFilters = { product: [], direction: [], exchange: [], strategy: [] };
     document.querySelectorAll('.filter-chip').forEach(btn => btn.classList.remove('active'));
     updateFilterIndicator();
     savePreferences();
@@ -667,10 +737,16 @@ function renderActiveFiltersBar() {
     if (hasGrouping) {
         const groupingLabels = {
             'underlying': 'Underlying',
-            'underlying_expiry': 'Underlying & Expiry'
+            'underlying_expiry': 'Underlying & Expiry',
+            'strategy': 'Strategy'
         };
         chips.push(`<span class="active-filter-chip">Grouped: ${groupingLabels[currentGrouping]}</span>`);
     }
+
+    // Show strategy filters
+    activeFilters.strategy.forEach(val => {
+        chips.push(`<span class="active-filter-chip">Strategy: ${val}</span>`);
+    });
 
     // Show product filters
     activeFilters.product.forEach(val => {
@@ -724,7 +800,7 @@ function resetGrouping() {
 }
 
 function clearAllFiltersAndGrouping() {
-    activeFilters = { product: [], direction: [], exchange: [] };
+    activeFilters = { product: [], direction: [], exchange: [], strategy: [] };
     currentGrouping = 'none';
     collapsedGroups.clear();
 
@@ -782,7 +858,8 @@ function loadPreferences() {
                 activeFilters = {
                     product: prefs.filters.product || [],
                     direction: prefs.filters.direction || [],
-                    exchange: prefs.filters.exchange || []
+                    exchange: prefs.filters.exchange || [],
+                    strategy: prefs.filters.strategy || []
                 };
                 document.querySelectorAll('.filter-chip').forEach(btn => {
                     const filterType = btn.dataset.filter;
@@ -864,10 +941,21 @@ function openCloseAllModal() {
                     <input type="radio" name="grouping" value="underlying_expiry" class="radio radio-sm radio-primary" onchange="applyGrouping(this.value)">
                     <span>Underlying & Expiry</span>
                 </label>
+                <label class="grouping-label flex items-center gap-3 cursor-pointer p-2 rounded hover:bg-base-200">
+                    <input type="radio" name="grouping" value="strategy" class="radio radio-sm radio-primary" onchange="applyGrouping(this.value)">
+                    <span>Strategy</span>
+                </label>
             </div>
         </div>
 
         <div class="divider my-3"></div>
+
+        <div class="mb-4">
+            <div class="text-xs font-semibold uppercase tracking-wider text-base-content/60 mb-3">Strategies</div>
+            <div id="strategy-filters" class="flex flex-wrap gap-2">
+                <!-- Dynamically populated -->
+            </div>
+        </div>
 
         <div class="mb-4">
             <div class="text-xs font-semibold uppercase tracking-wider text-base-content/60 mb-3">Product Type</div>
