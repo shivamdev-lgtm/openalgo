@@ -248,6 +248,9 @@ def process_basket_order_with_auth(
             order_with_auth = order.copy()
             order_with_auth['apikey'] = api_key
             order_with_auth['strategy'] = basket_data['strategy']
+            # Include tag from basket level if present
+            if basket_data.get('tag'):
+                order_with_auth['tag'] = basket_data['tag']
 
             # Validate order
             is_valid, error_message = validate_order(order_with_auth)
@@ -263,7 +266,7 @@ def process_basket_order_with_auth(
             success, response, status_code = sandbox_place_order(
                 order_with_auth,
                 api_key,
-                {'apikey': api_key, 'order_type': 'basket'}
+                original_data
             )
 
             if success:

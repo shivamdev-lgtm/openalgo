@@ -13,6 +13,7 @@ class OrderSchema(Schema):
     trigger_price = fields.Float(missing=0.0, validate=validate.Range(min=0, error="Trigger price must be a non-negative number."))
     disclosed_quantity = fields.Int(missing=0, validate=validate.Range(min=0, error="Disclosed quantity must be a non-negative integer."))
     underlying_ltp = fields.Float(missing=None, allow_none=True)  # Optional: passed from options order for execution reference
+    tag = fields.Str(required=False, missing=None, allow_none=True)  # Optional tag for the order
 
 class SmartOrderSchema(Schema):
     apikey = fields.Str(required=True)
@@ -27,6 +28,7 @@ class SmartOrderSchema(Schema):
     price = fields.Float(missing=0.0, validate=validate.Range(min=0, error="Price must be a non-negative number."))
     trigger_price = fields.Float(missing=0.0, validate=validate.Range(min=0, error="Trigger price must be a non-negative number."))
     disclosed_quantity = fields.Int(missing=0, validate=validate.Range(min=0, error="Disclosed quantity must be a non-negative integer."))
+    tag = fields.Str(missing=None, allow_none=True)  # Optional tag for the order
 
 class ModifyOrderSchema(Schema):
     apikey = fields.Str(required=True)
@@ -69,6 +71,7 @@ class BasketOrderItemSchema(Schema):
 class BasketOrderSchema(Schema):
     apikey = fields.Str(required=True)
     strategy = fields.Str(required=True)
+    tag = fields.Str(required=False)
     orders = fields.List(fields.Nested(BasketOrderItemSchema), required=True)  # List of order details
 
 class SplitOrderSchema(Schema):

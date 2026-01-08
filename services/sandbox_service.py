@@ -13,6 +13,7 @@ from database.settings_db import get_analyze_mode
 from database.auth_db import verify_api_key
 from database.apilog_db import async_log_order, executor
 from database.analyzer_db import async_log_analyzer
+from database.position_strategy_mapping_db import create_position_mapping
 from extensions import socketio
 from utils.logging import get_logger
 from services.telegram_alert_service import telegram_alert_service
@@ -84,11 +85,29 @@ def sandbox_place_order(
             'trigger_price': order_data.get('trigger_price', 0),
             'price_type': order_data.get('pricetype') or order_data.get('price_type', 'MARKET'),
             'product': order_data.get('product') or order_data.get('product_type', 'MIS'),
-            'strategy': order_data.get('strategy', '')
+            'strategy': order_data.get('strategy', ''),
         }
 
         # Place order in sandbox
         success, response, status_code = order_manager.place_order(sandbox_order_data)
+
+        # Track position if successful and tag/strategy is provided
+        if success and response.get('status') == 'success':
+            tag = order_data.get('tag') or original_data.get('tag')
+            if tag:
+                # Track position in background to not block response
+                socketio.start_background_task(
+                    create_position_mapping,
+                    user_id=user_id,
+                    symbol=order_data.get('symbol'),
+                    exchange=order_data.get('exchange'),
+                    strategy_name=tag,
+                    strategy_id=None,
+                    strategy_type='python',
+                    entry_price=str(order_data.get('price', 0)),
+                    entry_quantity=order_data.get('quantity'),
+                    entry_time=None
+                )
 
         # Prepare logging data
         log_request = copy.deepcopy(original_data)
