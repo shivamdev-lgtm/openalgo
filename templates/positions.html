@@ -294,16 +294,18 @@
                     <th class="cursor-pointer hover:bg-base-300" onclick="sortTable(4)">Net Qty</th>
                     <th class="cursor-pointer hover:bg-base-300" onclick="sortTable(5)">Avg Price</th>
                     <th>LTP</th>
-                    <th class="cursor-pointer hover:bg-base-300" onclick="sortTable(7)">P&L</th>
-                    <th class="cursor-pointer hover:bg-base-300" onclick="sortTable(8)">Chg%</th>
+                    <th>Margin</th>
+                    <th class="cursor-pointer hover:bg-base-300" onclick="sortTable(8)">P&L</th>
+                    <th class="cursor-pointer hover:bg-base-300" onclick="sortTable(9)">Chg%</th>
                     <th>Actions</th>
                 </tr>
             </thead>
             <tbody id="positions-tbody"></tbody>
             <tfoot>
                 <tr class="footer-row">
-                    <td colspan="6" class="text-right text-base-content/70">Total P&L:</td>
+                    <td colspan="6" class="text-right text-base-content/70">Total P&L / Margin:</td>
                     <td id="footer-total-pnl" class="numeric-cell font-bold">0.00</td>
+                    <td id="footer-total-margin" class="numeric-cell font-bold">0.00</td>
                     <td colspan="2"></td>
                 </tr>
             </tfoot>
@@ -322,6 +324,8 @@
 
 <script>
 const originalPositions = {{ positions_data | tojson | safe }};
+const groupMarginsData = {{ group_margins | tojson | safe }};
+const totalMarginRequired = {{ total_margin }};
 
 let currentGrouping = 'none';
 let activeFilters = { product: [], direction: [], exchange: [], strategy: [] };
@@ -466,9 +470,10 @@ function groupPositions(positions) {
     return groups;
 }
 
-function calculateGroupStats(positions) {
+function calculateGroupStats(positions, groupKey = null) {
     let totalPnl = 0;
     let totalInvestment = 0;
+    let totalMargin = 0;
 
     positions.forEach(pos => {
         totalPnl += parseFloat(pos.pnl) || 0;
@@ -478,7 +483,16 @@ function calculateGroupStats(positions) {
     });
 
     const pnlPercent = totalInvestment > 0 ? (totalPnl / totalInvestment) * 100 : 0;
-    return { totalPnl, pnlPercent, count: positions.length };
+    
+    // Use pre-calculated margin from backend (accounts for hedges)
+    if (groupKey && groupMarginsData && groupMarginsData[groupKey] !== undefined) {
+        totalMargin = groupMarginsData[groupKey];
+    } else if (!groupKey) {
+        // For overall totals, use pre-calculated total margin
+        totalMargin = totalMarginRequired || 0;
+    }
+    
+    return { totalPnl, pnlPercent, totalMargin, count: positions.length };
 }
 
 function sortPositions(positions) {
@@ -547,7 +561,7 @@ function renderPositions() {
         const isCollapsed = collapsedGroups.has(groupKey);
 
         if (currentGrouping !== 'none') {
-            const stats = calculateGroupStats(positions);
+            const stats = calculateGroupStats(positions, groupKey);
             const pnlClass = stats.totalPnl >= 0 ? 'profit' : 'loss';
             const pnlTextClass = stats.totalPnl >= 0 ? 'text-success' : 'text-error';
             const pnlSign = stats.totalPnl >= 0 ? '+' : '';
@@ -557,7 +571,7 @@ function renderPositions() {
             headerRow.className = 'group-header-row';
             headerRow.onclick = () => toggleGroup(groupKey);
             headerRow.innerHTML = `
-                <td colspan="6">
+                <td colspan="7">
                     <div class="group-info">
                         <svg class="group-chevron ${isCollapsed ? 'collapsed' : ''}" xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
@@ -566,6 +580,7 @@ function renderPositions() {
                         <span class="badge badge-ghost badge-sm">${stats.count}</span>
                     </div>
                 </td>
+                <td class="numeric-cell font-bold">₹${stats.totalMargin.toFixed(2)}</td>
                 <td class="numeric-cell font-bold ${pnlTextClass}">${pnlSign}${stats.totalPnl.toFixed(2)}</td>
                 <td class="numeric-cell font-semibold ${pnlTextClass}">${pctSign}${stats.pnlPercent.toFixed(2)}%</td>
                 <td></td>
@@ -604,6 +619,7 @@ function renderPositions() {
                 <td class="${qtyClass}">${position.quantity}</td>
                 <td class="numeric-cell">${position.average_price}</td>
                 <td class="numeric-cell">${position.ltp !== undefined ? position.ltp : '-'}</td>
+                <td class="numeric-cell" style="color: rgba(255, 255, 255, 0.5);">-</td>
                 <td class="numeric-cell font-semibold ${pnlClass}">${pnlSign}${pnl.toFixed(2)}</td>
                 <td class="numeric-cell ${pnlClass}">${pctSign}${pnlPercent.toFixed(2)}%</td>
                 <td>
@@ -627,18 +643,22 @@ function renderPositions() {
 }
 
 function updateFooterTotals(positions) {
-    const stats = calculateGroupStats(positions);
+    const stats = calculateGroupStats(positions, null);
     const pnlClass = stats.totalPnl >= 0 ? 'text-success' : 'text-error';
     const pnlSign = stats.totalPnl >= 0 ? '+' : '';
 
     const footerPnl = document.getElementById('footer-total-pnl');
     footerPnl.textContent = `${pnlSign}${stats.totalPnl.toFixed(2)}`;
     footerPnl.className = `numeric-cell font-bold ${pnlClass}`;
+    
+    const footerMargin = document.getElementById('footer-total-margin');
+    footerMargin.textContent = `₹${stats.totalMargin.toFixed(2)}`;
+    footerMargin.className = 'numeric-cell font-bold text-info';
 }
 
 function updateStats() {
     const filteredPositions = filterPositions(originalPositions);
-    const stats = calculateGroupStats(filteredPositions);
+    const stats = calculateGroupStats(filteredPositions, null);
 
     const totalPnlEl = document.getElementById('total-pnl');
     const pnlSign = stats.totalPnl >= 0 ? '+' : '';

@@ -10,6 +10,7 @@ from services.orderbook_service import get_orderbook
 from services.tradebook_service import get_tradebook
 from services.positionbook_service import get_positionbook
 from services.holdings_service import get_holdings
+from services.margin_service import calculate_margin
 from utils.logging import get_logger
 from limiter import limiter
 import csv
@@ -241,22 +242,120 @@ def positions():
 
     positions_data = response.get('data', [])
     
-    # Enrich positions with strategy information
+    # Enrich positions with strategy information and split positions across strategies
     position_mappings = get_position_mappings_as_dict(login_username)
+    enriched_positions = []
+    
     for position in positions_data:
         position_key = f"{position.get('symbol')}_{position.get('exchange')}"
+        position_qty = int(position.get('quantity', 0))
+        
         if position_key in position_mappings:
-            mapping = position_mappings[position_key]
-            position['strategy_name'] = mapping.get('strategy_name', 'Manual')
-            position['strategy_id'] = mapping.get('strategy_id')
-            position['strategy_type'] = mapping.get('strategy_type', 'manual')
+            strategies = position_mappings[position_key]
+            
+            # If multiple strategies have this symbol, split the position across them
+            total_tracked_qty = sum(int(s.get('quantity', 0)) for s in strategies)
+            
+            if total_tracked_qty > 0 and total_tracked_qty <= abs(position_qty):
+                # Create separate position entries for each strategy based on their quantity
+                for strategy_mapping in strategies:
+                    strategy_qty = int(strategy_mapping.get('quantity', 0))
+                    if strategy_qty != 0:
+                        # Create a copy of the position for this strategy
+                        strategy_position = position.copy()
+                        strategy_position['quantity'] = strategy_qty
+                        strategy_position['strategy_name'] = strategy_mapping.get('strategy_name', 'Manual')
+                        strategy_position['strategy_id'] = strategy_mapping.get('strategy_id')
+                        strategy_position['strategy_type'] = strategy_mapping.get('strategy_type', 'manual')
+                        enriched_positions.append(strategy_position)
+                
+                # If there's untracked quantity, add it as Manual
+                if total_tracked_qty < abs(position_qty):
+                    untracked_position = position.copy()
+                    untracked_position['quantity'] = position_qty - total_tracked_qty
+                    untracked_position['strategy_name'] = 'Manual'
+                    untracked_position['strategy_id'] = None
+                    untracked_position['strategy_type'] = 'manual'
+                    enriched_positions.append(untracked_position)
+            else:
+                # Fallback: assign to first strategy if quantities don't match
+                mapping = strategies[0] if strategies else {}
+                position['strategy_name'] = mapping.get('strategy_name', 'Manual')
+                position['strategy_id'] = mapping.get('strategy_id')
+                position['strategy_type'] = mapping.get('strategy_type', 'manual')
+                enriched_positions.append(position)
         else:
             # Default to 'Manual' for positions without strategy mapping
             position['strategy_name'] = 'Manual'
             position['strategy_id'] = None
             position['strategy_type'] = 'manual'
+            enriched_positions.append(position)
+    
+    positions_data = enriched_positions
+    
+    # Helper function to convert positions to margin calculation format
+    def get_margin_positions(positions):
+        return [{
+            'symbol': pos.get('symbol'),
+            'exchange': pos.get('exchange'),
+            'action': 'BUY' if int(pos.get('quantity', 0)) >= 0 else 'SELL',
+            'quantity': str(abs(int(pos.get('quantity', 0)))),
+            'product': pos.get('product', 'MIS'),
+            'pricetype': 'MARKET'
+        } for pos in positions if int(pos.get('quantity', 0)) != 0]
+    
+    # Calculate total margin for all positions (accounts for hedges)
+    try:
+        margin_positions = get_margin_positions(positions_data)
+        if margin_positions:  # Only call if there are positions with non-zero quantity
+            margin_data = {'positions': margin_positions, 'apikey': api_key}
 
-    return render_template('positions.html', positions_data=positions_data)
+            success, margin_response, _ = calculate_margin(margin_data, auth_token=auth_token, broker=broker)
+
+            if success and margin_response.get('status') == 'success':
+                total_margin_data = margin_response.get('data', {})
+                total_margin_required = total_margin_data.get('total_margin_required', 0)
+            else:
+                logger.warning(f"Total margin calculation failed: {margin_response.get('message', 'Unknown error')}")
+                total_margin_required = 0
+        else:
+            total_margin_required = 0
+    except Exception as e:
+        logger.warning(f"Error calculating total margin: {e}")
+        total_margin_required = 0
+    
+    # Calculate margin for each strategy group
+    group_margins = {
+        'apikey': api_key
+    }
+    strategy_groups = {}
+    for position in positions_data:
+        strategy = position.get('strategy_name', 'Manual')
+        if strategy not in strategy_groups:
+            strategy_groups[strategy] = []
+        strategy_groups[strategy].append(position)
+    
+    for strategy, group_positions in strategy_groups.items():
+        try:
+            margin_positions = get_margin_positions(group_positions)
+            if margin_positions:  # Only call if there are positions with non-zero quantity
+                margin_data = {'positions': margin_positions, 'apikey': api_key}
+                
+                success, margin_response, _ = calculate_margin(margin_data, auth_token=auth_token, broker=broker)
+                
+                if success and margin_response.get('status') == 'success':
+                    margin_data_resp = margin_response.get('data', {})
+                    group_margins[strategy] = margin_data_resp.get('total_margin_required', 0)
+                else:
+                    logger.warning(f"Margin calculation failed for strategy {strategy}, error: {margin_response.get('message', 'Unknown error')}")
+                    group_margins[strategy] = 0
+            else:
+                group_margins[strategy] = 0
+        except Exception as e:
+            logger.warning(f"Error calculating margin for strategy {strategy}: {e}")
+            group_margins[strategy] = 0
+
+    return render_template('positions.html', positions_data=positions_data, total_margin=total_margin_required, group_margins=group_margins)
 
 @orders_bp.route('/holdings')
 @check_session_validity
