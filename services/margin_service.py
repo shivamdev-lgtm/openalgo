@@ -103,10 +103,6 @@ def validate_margin_data(data: Dict[str, Any]) -> Tuple[bool, Optional[List[Dict
         - Validated positions list (list) or None if validation failed
         - Error message (str) or None if validation succeeded
     """
-    # Check for apikey
-    if 'apikey' not in data:
-        return False, None, 'Missing mandatory field: apikey'
-
     # Check for positions array
     if 'positions' not in data:
         return False, None, 'Missing mandatory field: positions'

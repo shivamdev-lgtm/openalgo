@@ -251,39 +251,14 @@ def positions():
         position_qty = int(position.get('quantity', 0))
         
         if position_key in position_mappings:
-            strategies = position_mappings[position_key]
+            strategy_mapping = position_mappings[position_key]
             
-            # If multiple strategies have this symbol, split the position across them
-            total_tracked_qty = sum(int(s.get('quantity', 0)) for s in strategies)
-            
-            if total_tracked_qty > 0 and total_tracked_qty <= abs(position_qty):
-                # Create separate position entries for each strategy based on their quantity
-                for strategy_mapping in strategies:
-                    strategy_qty = int(strategy_mapping.get('quantity', 0))
-                    if strategy_qty != 0:
-                        # Create a copy of the position for this strategy
-                        strategy_position = position.copy()
-                        strategy_position['quantity'] = strategy_qty
-                        strategy_position['strategy_name'] = strategy_mapping.get('strategy_name', 'Manual')
-                        strategy_position['strategy_id'] = strategy_mapping.get('strategy_id')
-                        strategy_position['strategy_type'] = strategy_mapping.get('strategy_type', 'manual')
-                        enriched_positions.append(strategy_position)
-                
-                # If there's untracked quantity, add it as Manual
-                if total_tracked_qty < abs(position_qty):
-                    untracked_position = position.copy()
-                    untracked_position['quantity'] = position_qty - total_tracked_qty
-                    untracked_position['strategy_name'] = 'Manual'
-                    untracked_position['strategy_id'] = None
-                    untracked_position['strategy_type'] = 'manual'
-                    enriched_positions.append(untracked_position)
-            else:
-                # Fallback: assign to first strategy if quantities don't match
-                mapping = strategies[0] if strategies else {}
-                position['strategy_name'] = mapping.get('strategy_name', 'Manual')
-                position['strategy_id'] = mapping.get('strategy_id')
-                position['strategy_type'] = mapping.get('strategy_type', 'manual')
-                enriched_positions.append(position)
+            # Create a position entry with the strategy information
+            strategy_position = position.copy()
+            strategy_position['strategy_name'] = strategy_mapping.get('strategy_name', 'Manual')
+            strategy_position['strategy_id'] = strategy_mapping.get('strategy_id')
+            strategy_position['strategy_type'] = strategy_mapping.get('strategy_type', 'manual')
+            enriched_positions.append(strategy_position)
         else:
             # Default to 'Manual' for positions without strategy mapping
             position['strategy_name'] = 'Manual'
@@ -308,7 +283,7 @@ def positions():
     try:
         margin_positions = get_margin_positions(positions_data)
         if margin_positions:  # Only call if there are positions with non-zero quantity
-            margin_data = {'positions': margin_positions, 'apikey': api_key}
+            margin_data = {'positions': margin_positions}
 
             success, margin_response, _ = calculate_margin(margin_data, auth_token=auth_token, broker=broker)
 
@@ -325,9 +300,7 @@ def positions():
         total_margin_required = 0
     
     # Calculate margin for each strategy group
-    group_margins = {
-        'apikey': api_key
-    }
+    group_margins = {}
     strategy_groups = {}
     for position in positions_data:
         strategy = position.get('strategy_name', 'Manual')
@@ -339,7 +312,7 @@ def positions():
         try:
             margin_positions = get_margin_positions(group_positions)
             if margin_positions:  # Only call if there are positions with non-zero quantity
-                margin_data = {'positions': margin_positions, 'apikey': api_key}
+                margin_data = {'positions': margin_positions}
                 
                 success, margin_response, _ = calculate_margin(margin_data, auth_token=auth_token, broker=broker)
                 
