@@ -248,7 +248,6 @@ def positions():
     
     for position in positions_data:
         position_key = f"{position.get('symbol')}_{position.get('exchange')}"
-        position_qty = int(position.get('quantity', 0))
         
         if position_key in position_mappings:
             strategy_mapping = position_mappings[position_key]
