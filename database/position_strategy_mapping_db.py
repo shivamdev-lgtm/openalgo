@@ -226,3 +226,33 @@ def get_position_mappings_as_dict(user_id):
     except Exception as e:
         logger.error(f"Error getting position mappings dict: {e}")
         return {}
+
+
+def get_position_mappings_for_symbols(user_id):
+    """Get all position mappings as a list grouped by symbol/exchange for handling multiple strategies per position"""
+    try:
+        today = date.today()
+        mappings = PositionStrategyMapping.query.filter(
+            PositionStrategyMapping.user_id == user_id,
+            PositionStrategyMapping.is_active == True,
+            func.date(PositionStrategyMapping.created_at) == today
+        ).all()
+        
+        # Group by symbol and exchange to handle multiple strategies per position
+        mapping_groups = {}
+        for mapping in mappings:
+            key = f"{mapping.symbol}_{mapping.exchange}"
+            if key not in mapping_groups:
+                mapping_groups[key] = []
+            mapping_groups[key].append({
+                'strategy_name': mapping.strategy_name,
+                'strategy_id': mapping.strategy_id,
+                'strategy_type': mapping.strategy_type,
+                'entry_price': mapping.entry_price,
+                'entry_quantity': mapping.entry_quantity,
+                'entry_time': mapping.entry_time
+            })
+        return mapping_groups
+    except Exception as e:
+        logger.error(f"Error getting position mappings for symbols: {e}")
+        return {}
