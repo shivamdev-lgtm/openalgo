@@ -436,7 +436,17 @@ function calculatePnlPercent(position) {
 }
 
 function filterPositions(positions) {
+    // Check if in analyze mode
+    const isAnalyzeMode = document.getElementById('mode-badge')?.textContent === 'Analyze Mode' || 
+                         document.getElementById('mode-badge')?.textContent === 'Analyze';
+    
     return positions.filter(pos => {
+        // Hide closed positions in analyze mode
+        if (isAnalyzeMode) {
+            const qty = parseInt(pos.quantity) || 0;
+            if (qty === 0) return false;
+        }
+        
         if (activeFilters.product.length > 0 && !activeFilters.product.includes(pos.product)) return false;
 
         const qty = parseInt(pos.quantity) || 0;
