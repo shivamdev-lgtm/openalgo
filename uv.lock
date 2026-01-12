@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = ">=3.12"
 
 [[package]]
@@ -1129,17 +1129,13 @@ wheels = [
 [[package]]
 name = "openalgo"
 version = "1.0.45"
-source = { registry = "https://pypi.org/simple" }
+source = { git = "https://github.com/shivamdev-lgtm/openalgo-python-library#89399cf95f640fe262bfb3a46c454c7c1baa09d1" }
 dependencies = [
     { name = "httpx" },
     { name = "numba" },
     { name = "numpy" },
     { name = "pandas" },
     { name = "websocket-client" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/8d/cc/56369016ca6740dda275e83723ede4b7097d2f46f5ec1358ff87209bd5dc/openalgo-1.0.45.tar.gz", hash = "sha256:adb6793dd749a30ce2271a557c2009ca8249bf1253faeb191c204d8aeeaf61da", size = 112710, upload-time = "2025-12-24T06:51:28.629Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/56/9f/7cad2a813274213774fe210c2e7f2f0c23986eb3a707c5ed59da385fcc80/openalgo-1.0.45-py3-none-any.whl", hash = "sha256:35f578185174e3789f738184593740f47a158c343c03ce7d4afc7c381960bb22", size = 114262, upload-time = "2025-12-24T06:51:26.145Z" },
 ]
 
 [[package]]
@@ -1373,7 +1369,7 @@ requires-dist = [
     { name = "nest-asyncio", specifier = "==1.6.0" },
     { name = "numba", specifier = "==0.63.0b1" },
     { name = "numpy", specifier = "==2.3.5" },
-    { name = "openalgo", specifier = "==1.0.45" },
+    { name = "openalgo", git = "https://github.com/shivamdev-lgtm/openalgo-python-library" },
     { name = "ordered-set", specifier = "==4.1.0" },
     { name = "orjson", specifier = "==3.11.3" },
     { name = "packaging", specifier = "==24.1" },
