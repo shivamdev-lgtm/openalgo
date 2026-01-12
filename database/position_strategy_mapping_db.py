@@ -8,6 +8,7 @@ from sqlalchemy.orm import scoped_session, sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.sql import func
 from sqlalchemy.pool import NullPool
+from datetime import date
 import os
 import logging
 
@@ -103,11 +104,13 @@ def create_position_mapping(user_id, symbol, exchange, strategy_name=None, strat
 def get_position_strategy(user_id, symbol, exchange):
     """Get the strategy that opened a specific position"""
     try:
-        mapping = PositionStrategyMapping.query.filter_by(
-            user_id=user_id,
-            symbol=symbol,
-            exchange=exchange,
-            is_active=True
+        today = date.today()
+        mapping = PositionStrategyMapping.query.filter(
+            PositionStrategyMapping.user_id == user_id,
+            PositionStrategyMapping.symbol == symbol,
+            PositionStrategyMapping.exchange == exchange,
+            PositionStrategyMapping.is_active == True,
+            func.date(PositionStrategyMapping.created_at) == today
         ).first()
         return mapping
     except Exception as e:
@@ -118,15 +121,17 @@ def get_position_strategy(user_id, symbol, exchange):
 def get_positions_by_strategy(user_id, strategy_id=None, strategy_name=None):
     """Get all positions opened by a specific strategy"""
     try:
-        query = PositionStrategyMapping.query.filter_by(
-            user_id=user_id,
-            is_active=True
+        today = date.today()
+        query = PositionStrategyMapping.query.filter(
+            PositionStrategyMapping.user_id == user_id,
+            PositionStrategyMapping.is_active == True,
+            func.date(PositionStrategyMapping.created_at) == today
         )
         
         if strategy_id:
-            query = query.filter_by(strategy_id=strategy_id)
+            query = query.filter(PositionStrategyMapping.strategy_id == strategy_id)
         elif strategy_name:
-            query = query.filter_by(strategy_name=strategy_name)
+            query = query.filter(PositionStrategyMapping.strategy_name == strategy_name)
         
         return query.all()
     except Exception as e:
@@ -137,9 +142,11 @@ def get_positions_by_strategy(user_id, strategy_id=None, strategy_name=None):
 def get_user_positions_with_strategies(user_id):
     """Get all active position-strategy mappings for a user"""
     try:
-        mappings = PositionStrategyMapping.query.filter_by(
-            user_id=user_id,
-            is_active=True
+        today = date.today()
+        mappings = PositionStrategyMapping.query.filter(
+            PositionStrategyMapping.user_id == user_id,
+            PositionStrategyMapping.is_active == True,
+            func.date(PositionStrategyMapping.created_at) == today
         ).all()
         return mappings
     except Exception as e:
@@ -197,9 +204,11 @@ def update_position_mapping(user_id, symbol, exchange, **kwargs):
 def get_position_mappings_as_dict(user_id):
     """Get all position mappings as a dictionary for quick lookup"""
     try:
-        mappings = PositionStrategyMapping.query.filter_by(
-            user_id=user_id,
-            is_active=True
+        today = date.today()
+        mappings = PositionStrategyMapping.query.filter(
+            PositionStrategyMapping.user_id == user_id,
+            PositionStrategyMapping.is_active == True,
+            func.date(PositionStrategyMapping.created_at) == today
         ).all()
         
         mapping_dict = {}
