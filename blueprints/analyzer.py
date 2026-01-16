@@ -258,3 +258,29 @@ def export_requests():
         logger.error(f"Error exporting requests: {str(e)}\n{traceback.format_exc()}")
         flash('Error exporting requests', 'error')
         return redirect(url_for('analyzer_bp.analyzer'))
+
+@analyzer_bp.route('/reset', methods=['POST'])
+@check_session_validity
+def reset_account():
+    """Reset analyze mode account - clears all sandbox data"""
+    try:
+        from database.settings_db import get_analyze_mode
+        from services.analyzer_service import reset_analyzer_account
+
+        # Check if analyzer mode is enabled
+        if not get_analyze_mode():
+            return jsonify({
+                'status': 'error',
+                'message': 'Reset is only available in Analyze Mode'
+            }), 400
+        
+        _, response_data, status_code = reset_analyzer_account()
+
+        return jsonify(response_data), status_code
+        
+    except Exception as e:
+        logger.error(f"Error resetting analyze mode account: {str(e)}\n{traceback.format_exc()}")
+        return jsonify({
+            'status': 'error',
+            'message': f'Failed to reset account: {str(e)}'
+        }), 500

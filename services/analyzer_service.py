@@ -263,3 +263,108 @@ def toggle_analyzer_mode(
             'message': 'Either api_key or both auth_token and broker must be provided'
         }
         return False, error_response, 400
+
+
+def reset_analyzer_account() -> Tuple[bool, Dict[str, Any], int]:
+    """
+    Reset analyze mode account - clears all sandbox data and resets funds.
+    Supports both API-based authentication and direct internal calls.
+
+    Returns:
+        Tuple containing:
+        - Success status (bool)
+        - Response data (dict)
+        - HTTP status code (int)
+    """
+    try:
+        # Import sandbox managers
+        from database.sandbox_db import (
+            SandboxOrders, SandboxTrades, SandboxPositions, 
+            SandboxHoldings, SandboxFunds, SandboxDailyPnL, 
+            db_session as sandbox_db_session
+        )
+        
+        logger.info("Starting analyzer account reset...")
+        
+        # Reset all sandbox data
+        reset_stats = {
+            'orders_deleted': 0,
+            'trades_deleted': 0,
+            'positions_deleted': 0,
+            'holdings_deleted': 0,
+            'daily_pnl_deleted': 0
+        }
+        
+        try:
+            # Delete orders
+            reset_stats['orders_deleted'] = sandbox_db_session.query(SandboxOrders).delete()
+            logger.info(f"Deleted {reset_stats['orders_deleted']} sandbox orders")
+            
+            # Delete trades
+            reset_stats['trades_deleted'] = sandbox_db_session.query(SandboxTrades).delete()
+            logger.info(f"Deleted {reset_stats['trades_deleted']} sandbox trades")
+            
+            # Delete positions
+            reset_stats['positions_deleted'] = sandbox_db_session.query(SandboxPositions).delete()
+            logger.info(f"Deleted {reset_stats['positions_deleted']} sandbox positions")
+            
+            # Delete holdings
+            reset_stats['holdings_deleted'] = sandbox_db_session.query(SandboxHoldings).delete()
+            logger.info(f"Deleted {reset_stats['holdings_deleted']} sandbox holdings")
+            
+            # Delete daily P&L records
+            reset_stats['daily_pnl_deleted'] = sandbox_db_session.query(SandboxDailyPnL).delete()
+            logger.info(f"Deleted {reset_stats['daily_pnl_deleted']} daily P&L records")
+            
+            # Reset funds for all users
+            funds = sandbox_db_session.query(SandboxFunds).all()
+            for fund in funds:
+                fund.available_balance = fund.total_capital  # Reset to starting capital
+                fund.used_margin = 0.00
+                fund.realized_pnl = 0.00
+                fund.today_realized_pnl = 0.00
+                fund.unrealized_pnl = 0.00
+                fund.total_pnl = 0.00
+                fund.reset_count = (fund.reset_count or 0) + 1
+            
+            sandbox_db_session.commit()
+            logger.info(f"Reset funds for {len(funds)} users")
+            
+        except Exception as e:
+            sandbox_db_session.rollback()
+            logger.error(f"Error during sandbox data reset: {e}")
+            raise e
+        
+        # Clear analyzer logs as well
+        try:
+            logs_deleted = db_session.query(AnalyzerLog).delete()
+            db_session.commit()
+            reset_stats['analyzer_logs_deleted'] = logs_deleted
+            logger.info(f"Deleted {logs_deleted} analyzer logs")
+        except Exception as e:
+            db_session.rollback()
+            logger.error(f"Error clearing analyzer logs: {e}")
+        
+        logger.info("Analyzer account reset completed successfully")
+        
+        response_data = {
+            'status': 'success',
+            'message': 'Analyze Mode account reset successfully',
+            'data': {
+                'mode': 'analyze',
+                'reset_stats': reset_stats,
+                'summary': f"Reset complete: {reset_stats['orders_deleted']} orders, {reset_stats['trades_deleted']} trades, {reset_stats['positions_deleted']} positions, {reset_stats['holdings_deleted']} holdings"
+            }
+        }
+        
+        log_executor.submit(async_log_order, 'analyzer_reset', response_data)
+        return True, response_data, 200
+        
+    except Exception as e:
+        logger.error(f"Error resetting analyzer account: {e}")
+        error_response = {
+            'status': 'error',
+            'message': f'Failed to reset analyze mode account: {str(e)}'
+        }
+        log_executor.submit(async_log_order, 'analyzer_reset', error_response)
+        return False, error_response, 500

@@ -6,7 +6,7 @@ import os
 import traceback
 
 from restx_api.account_schema import AnalyzerSchema, AnalyzerToggleSchema
-from services.analyzer_service import get_analyzer_status, toggle_analyzer_mode
+from services.analyzer_service import get_analyzer_status, toggle_analyzer_mode, reset_analyzer_account
 from database.apilog_db import async_log_order, executor as log_executor
 from utils.logging import get_logger
 
@@ -88,4 +88,39 @@ class AnalyzerToggle(Resource):
             error_message = 'An unexpected error occurred'
             error_response = {'status': 'error', 'message': error_message}
             log_executor.submit(async_log_order, 'analyzer_toggle', data, error_response)
+            return make_response(jsonify(error_response), 500)
+
+@api.route('/reset', strict_slashes=False)
+class AnalyzerReset(Resource):
+    @limiter.limit(API_RATE_LIMIT)
+    def post(self):
+        """Reset analyze mode account - clears all sandbox data and resets funds"""
+        try:
+            data = request.json
+
+            # Validate and deserialize input using AnalyzerSchema (apikey field only)
+            try:
+                analyzer_data = analyzer_schema.load(data)
+            except ValidationError as err:
+                error_message = str(err.messages)
+                error_response = {'status': 'error', 'message': error_message}
+                log_executor.submit(async_log_order, 'analyzer_reset', data, error_response)
+                return make_response(jsonify(error_response), 400)
+
+            # Extract API key
+            api_key = analyzer_data.pop('apikey', None)
+            
+            # Call the service function to reset analyzer account
+            success, response_data, status_code = reset_analyzer_account(
+                analyzer_data=analyzer_data,
+                api_key=api_key
+            )
+            
+            return make_response(jsonify(response_data), status_code)
+
+        except Exception as e:
+            logger.exception("An unexpected error occurred in Analyzer reset endpoint.")
+            error_message = 'An unexpected error occurred'
+            error_response = {'status': 'error', 'message': error_message}
+            log_executor.submit(async_log_order, 'analyzer_reset', data, error_response)
             return make_response(jsonify(error_response), 500)
