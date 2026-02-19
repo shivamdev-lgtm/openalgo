@@ -1,8 +1,9 @@
-import { BarChart3, BookOpen, LogOut, Menu, Moon, Sun, Zap } from 'lucide-react'
+import { BarChart3, BookOpen, LogOut, Menu, Moon, RotateCcw, Sun, Zap } from 'lucide-react'
 import { useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
-import { showToast } from '@/utils/toast'
+import { showToast, toast } from '@/utils/toast'
 import { authApi } from '@/api/auth'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -20,6 +21,14 @@ import {
   SheetTitle,
   SheetTrigger,
 } from '@/components/ui/sheet'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { isActiveRoute, mobileSheetItems, navItems, profileMenuItems } from '@/config/navigation'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/authStore'
@@ -29,8 +38,48 @@ export function Navbar() {
   const location = useLocation()
   const navigate = useNavigate()
   const [mobileOpen, setMobileOpen] = useState(false)
+  const [showResetDialog, setShowResetDialog] = useState(false)
+  const [isResetting, setIsResetting] = useState(false)
   const { mode, appMode, toggleMode, toggleAppMode, isTogglingMode } = useThemeStore()
   const { user, logout } = useAuthStore()
+
+  const fetchCSRFToken = async (): Promise<string> => {
+    const response = await fetch('/auth/csrf-token', {
+      credentials: 'include',
+    })
+    const data = await response.json()
+    return data.csrf_token
+  }
+
+  const resetSandbox = async () => {
+    setIsResetting(true)
+    try {
+      const csrfToken = await fetchCSRFToken()
+
+      const response = await fetch('/sandbox/reset', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRFToken': csrfToken,
+        },
+        credentials: 'include',
+      })
+
+      const data = await response.json()
+
+      if (data.status === 'success') {
+        toast.success(data.message)
+        setShowResetDialog(false)
+      } else {
+        toast.error(data.message)
+      }
+    } catch (error) {
+      console.error('Error resetting sandbox:', error)
+      toast.error('Failed to reset sandbox')
+    } finally {
+      setIsResetting(false)
+    }
+  }
 
   const handleLogout = async () => {
     try {
@@ -266,6 +315,21 @@ export function Navbar() {
                   Docs
                 </a>
               </DropdownMenuItem>
+              {appMode === 'analyzer' && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onSelect={(event) => {
+                      event.preventDefault()
+                      setShowResetDialog(true)
+                    }}
+                    className="cursor-pointer text-destructive focus:text-destructive"
+                  >
+                    <RotateCcw className="h-4 w-4 mr-2" />
+                    Reset Sandbox
+                  </DropdownMenuItem>
+                </>
+              )}
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 onClick={handleLogout}
@@ -278,6 +342,54 @@ export function Navbar() {
           </DropdownMenu>
         </div>
       </div>
+      {appMode === 'analyzer' && (
+        <Dialog open={showResetDialog} onOpenChange={setShowResetDialog}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2 text-destructive">
+                <RotateCcw className="h-5 w-5" />
+                Reset ALL Sandbox Data
+              </DialogTitle>
+              <DialogDescription asChild>
+                <div className="space-y-4 pt-4">
+                  <Alert variant="destructive">
+                    <AlertDescription>This action cannot be undone!</AlertDescription>
+                  </Alert>
+
+                  <div className="space-y-2">
+                    <p className="font-semibold">This action will:</p>
+                    <ul className="list-disc list-inside space-y-1 ml-4 text-sm">
+                      <li>Delete all orders, trades, positions, and holdings</li>
+                      <li>Reset funds to starting capital (1.00 Crore)</li>
+                      <li>Reset all configuration values to defaults</li>
+                      <li>Clear all historical data</li>
+                    </ul>
+                  </div>
+
+                  <p className="text-muted-foreground">
+                    Are you absolutely sure you want to reset everything?
+                  </p>
+                </div>
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button variant="ghost" onClick={() => setShowResetDialog(false)}>
+                Cancel
+              </Button>
+              <Button variant="destructive" onClick={resetSandbox} disabled={isResetting}>
+                {isResetting ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-current mr-2"></div>
+                    Resetting...
+                  </>
+                ) : (
+                  'Yes, Reset Everything'
+                )}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
     </nav>
   )
 }
